@@ -24,23 +24,24 @@ def parse_mega_link(url: str):
     """
     try:
         if "mega.nz/folder/" in url:
-            # folder link
             folder_id = url.split("folder/")[1].split("#")[0]
             folder_key = url.split("#")[1]
             return "folder", folder_id, folder_key
 
         elif "mega.nz/file/" in url:
-            # file link
             file_id = url.split("file/")[1].split("#")[0]
             file_key = url.split("#")[1]
             return "file", file_id, file_key
 
-        else:
-            return None
+        # old format
+        m = re.match(r'^https?://mega.(co.nz|nz)/#\!(?P<id>[\w-]+)!(?P<key>[\w-]+)$', url)
+        if m:
+            return "file", m.group("id"), m.group("key")
+
+        return None
 
     except:
         return None
-
 
 
 def humanbytes(size):
@@ -67,7 +68,6 @@ def TimeFormatter(milliseconds: int) -> str:
         return "0s"
 
 
-
 # ------------------------------- PROGRESS BAR ------------------------------- #
 
 async def progress_for_pyrogram(current, total, ud_type, message, start):
@@ -75,9 +75,9 @@ async def progress_for_pyrogram(current, total, ud_type, message, start):
         now = time.time()
         diff = now - start
         if diff == 0:
-            diff = 1e-6  # avoid division error
+            diff = 1e-6
 
-        if round(diff % 10.00) == 0 or current == total:
+        if round(diff % 10.0) == 0 or current == total:
             percentage = (current * 100 / total)
             speed = current / diff
             eta = int((total - current) / speed) if speed != 0 else 0
@@ -103,70 +103,63 @@ async def progress_for_pyrogram(current, total, ud_type, message, start):
                 await message.edit(text)
             except:
                 pass
-
     except:
         pass
 
 
-
-# ------------------------------- MAIN DOWNLOAD HANDLER ------------------------------- #
+# ------------------------------- MAIN DOWNLOAD ------------------------------- #
 
 async def mega_download(url: str, message):
-    """Master function to download file or folder from MEGA."""
-
+    """
+    Master function to download file or folder from MEGA.
+    Returns downloaded file path (file) or folder path (folder)
+    """
     parsed = parse_mega_link(url)
-
     if parsed is None:
-        await message.edit("❌ Invalid Mega link.")
+        await message.edit("❌ Invalid MEGA link.")
         return None
 
     link_type, public_id, key = parsed
 
     try:
-        m = mega.login()  # anonymous login also works: mega.login_anonymous()
+        m = mega.login()  # anonymous login: mega.login_anonymous()
     except Exception as e:
-        return await message.edit(f"❌ Login Error: `{e}`")
+        await message.edit(f"❌ Login Error: `{e}`")
+        return None
 
-
-
-    # ------------------- FILE DOWNLOAD ------------------- #
+    # ------------------- FILE ------------------- #
     if link_type == "file":
-
         try:
             file = m.find_public_file(public_id, key)
         except Exception as e:
-            return await message.edit(f"❌ Failed to fetch file: `{e}`")
+            await message.edit(f"❌ Failed to fetch file: `{e}`")
+            return None
 
         filename = file.get("name", "file.bin")
-
         await message.edit(f"📥 Downloading File: **{filename}**")
 
         try:
             path = m.download(file)
         except Exception as e:
-            return await message.edit(f"❌ Download failed: `{e}`")
+            await message.edit(f"❌ Download failed: `{e}`")
+            return None
 
         return path
 
-
-
-    # ------------------- FOLDER DOWNLOAD ------------------- #
+    # ------------------- FOLDER ------------------- #
     if link_type == "folder":
-
         await message.edit("📁 Fetching folder contents...")
-
         try:
             folder = m.get_public_folder(public_id, key)
         except Exception as e:
-            return await message.edit(f"❌ Cannot access folder: `{e}`")
+            await message.edit(f"❌ Cannot access folder: `{e}`")
+            return None
 
         folder_name = folder.get("name", "MEGA_Folder")
         os.makedirs(folder_name, exist_ok=True)
-
         await message.edit(f"📁 Folder detected: **{folder_name}**\nDownloading files...")
 
         downloaded_files = []
-
         for f in folder["files"]:
             try:
                 filepath = m.download(f, dest_path=folder_name)
@@ -175,10 +168,10 @@ async def mega_download(url: str, message):
                 print("Error downloading file:", e)
 
         if not downloaded_files:
-            return await message.edit("❌ Folder is empty or no files downloaded.")
+            await message.edit("❌ Folder is empty or no files downloaded.")
+            return None
 
         return folder_name
-
 
 
 # ------------------------------- LOGGING ------------------------------- #
